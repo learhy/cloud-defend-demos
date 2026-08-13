@@ -6,21 +6,56 @@ concepts but isn't a programmer. Demo cues are marked with ▶.*
 
 ---
 
-## Opening
+## Opening: How I Got Here
 
-So, the software I'm going to show you today is called Cloud Defend. It's an
-open-source project from Elastic — it's the engine behind their "Defend for
-Containers" product. What it does is runtime security enforcement for Linux
-containers using eBPF and the Linux Security Module framework.
+Before I jump into the software, let me give you some context for why I'm
+the one presenting this, and where my understanding of the technology comes
+from — because I want to be honest about the limits of that understanding.
 
-I want to be upfront: I'm not going to pretend I wrote this code or that I
-understand every line of it. I didn't. My former team spent weeks with this
-codebase and helped me understand the architecture and the trade-offs. What I
-*can* do is show you what it does, explain why it's harder to build than it
-looks, and walk you through some of the decisions the engineers made that I
-think are genuinely interesting — even from a product perspective.
+Back in 2017, I was at a startup called Kentik. We did network observability,
+and I was looking at a project for IBM — they ran IBM Cloud on what's now
+called MCS Plus, but at the time it was just called IKS, IBM Kubernetes
+Service. The goal was to give network engineers visibility into what was
+happening *inside* the Kubernetes network — not just the overlay, but the
+actual flows between pods, between namespaces, between containers.
 
-Let me start the demo and then we'll talk about what's happening under the hood.
+We had an engineer on the team — brilliant guy, really into Rust and Linux
+kernel programming — and he started talking to me about BPF. Not BPF-LSM,
+not security BPF — just the packet filtering and tracing side of it. He was
+using it to capture network flows at the kernel level without the overhead of
+traditional monitoring agents. And I remember thinking, okay, this is
+interesting, but it's a tool for engineers who speak kernel. How does this
+become a product?
+
+That question — how do you take something that lives in the kernel and make
+it accessible to someone who writes YAML, not C — that's the question that
+ended up defining the next few years of my career.
+
+Fast forward a few years. I was getting ready to leave Kentik. I'd spent a
+lot of time with BPF-adjacent technology, enough to appreciate what it could
+do, and a headhunter from Elastic called. They told me Elastic had just
+acqui-hired a startup out of Vancouver that specialized in BPF — and they
+were looking for a product manager who could help translate the unique
+differentiations the technology offered into customer benefits. I jumped at
+the chance.
+
+So that's how I came to know the engineers who built this. The team came
+from a startup called CMD — they did Linux PAM solutions, authentication
+modules. At Elastic, this same team added BPF reporting support to Elastic
+Defend, which was their endpoint product. And then they built a standalone
+thing called Cloud Defend — which is what we're going to see today.
+
+I want to be upfront about something: I understand the architecture, I
+understand the trade-offs, and I can tell you why the team made the
+decisions they made. But I'm not a programmer. When the engineers showed me
+the BPF verifier logs and explained why nested loops would "never verify,"
+I understood the *shape* of the problem — the constraint, the workaround —
+but I couldn't write the code that solves it. What I *can* do is show you
+what the software does, explain why it's harder to build than it looks, and
+walk you through the decisions that I think are genuinely interesting —
+even from a product perspective.
+
+Let me start the demo.
 
 ---
 
