@@ -97,11 +97,37 @@ which means it works regardless of what userspace code does. You can't bypass
 it by modifying the binary, by using a different shell, by exploiting a library.
 The hook is in the kernel.
 
+There's another advantage to the in-kernel approach that my team kept
+emphasizing, and once I understood it, it changed how I thought about the
+entire product category. It's something called **TOCTOU** — Time of Check to
+Time of Use. The classic security problem with userspace monitoring is that
+you check whether an operation is allowed, and then you let it proceed. But
+between the check and the actual operation, the state of the system can
+change. The file you approved could be swapped. The process you vetted could
+have been replaced. The path you validated could be a symlink by the time the
+write happens.
+
+With auditd or fanotify, you get an event in userspace, you evaluate it, and
+if it looks bad, you try to kill the process. But the kill is asynchronous —
+there's a window between "I decided this is bad" and "the process is actually
+stopped" where the process can still do damage. And even if you kill it
+instantly, the operation may have already completed. You're closing the barn
+door after the horse has left.
+
+BPF-LSM doesn't have this problem because the check and the use happen in the
+same atomic kernel context. The LSM hook fires, the BPF program evaluates the
+policy, and the return value — allow or deny — is enforced *before the kernel
+proceeds with the operation*. There's no window. There's no race. The
+decision and the enforcement are the same event. My engineers were very proud
+of this — they'd say "we don't detect attacks, we prevent the syscall from
+completing." That's the difference between a security camera and a locked
+door.
+
 The trade-off — and my team explained this to me in detail — is that BPF-LSM
 requires kernel support. Not every kernel has it. Not every cloud provider
 enables it. And the BPF programs themselves have to pass the kernel's verifier,
 which I'll talk about more in a minute. But the preemptive blocking capability
-is worth those constraints.
+— and the TOCTOU guarantee that comes with it — is worth those constraints.
 
 ---
 
