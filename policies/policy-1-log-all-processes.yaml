@@ -1,0 +1,41 @@
+# Policy 1: Log All Process Activity
+#
+# This policy logs every fork and exec event on the system. It is the
+# broadest possible process monitoring policy — every process creation
+# and every program execution will generate a log event.
+#
+# When used with the eventdumper tool, each matching event is printed
+# as a JSON object to stdout.
+
+elasticsearch:
+  api_key: "demo"
+  hosts:
+    - "http://localhost:9200"
+
+indexes:
+  alerts: logs-cloud_defend.alerts-default
+  file: logs-cloud_defend.file-default
+  process: logs-cloud_defend.process-default
+  metrics: metrics-cloud_defend.metrics-default
+
+package_policy:
+  package_policy_id: ""
+  package_policy_revision: 1
+
+security-policy:
+  version: "1.0.0"
+  process:
+    selectors:
+      # Match all fork operations
+      - name: allForks
+        operation: [ fork ]
+      # Match all exec operations
+      - name: allExecs
+        operation: [ exec ]
+    responses:
+      # Log every fork event
+      - match: [ allForks ]
+        actions: [ log ]
+      # Log every exec event
+      - match: [ allExecs ]
+        actions: [ log ]

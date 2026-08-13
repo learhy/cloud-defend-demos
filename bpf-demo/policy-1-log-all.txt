@@ -1,0 +1,4 @@
+# Policy 1: Log all process activity
+# Used with: ./demo --policy policy-1-log-all.txt
+log_all: true
+protect_passwd: false

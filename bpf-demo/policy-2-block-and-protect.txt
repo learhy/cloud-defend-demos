@@ -1,0 +1,6 @@
+# Policy 2: Block ps/zcat and protect /etc/passwd
+# Used with: ./demo --policy policy-2-block-and-protect.txt
+log_all: true
+protect_passwd: true
+block: ps
+block: zcat

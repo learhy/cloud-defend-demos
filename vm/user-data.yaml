@@ -1,0 +1,46 @@
+#cloud-config
+hostname: cloud-defend-demo
+manage_etc_hosts: true
+
+users:
+  - name: demo
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBry8f9JvIS9z6DqZrGetxzU9Xp7dVNNNh9Y+5OdvvJb cloud-defend-demo
+
+packages:
+  - jq
+  - curl
+  - wget
+  - openssh-server
+
+write_files:
+  - path: /etc/default/grub.d/99-bpf-lsm.cfg
+    content: |
+      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT lsm=lockdown,capability,yama,apparmor,bpf"
+  - path: /usr/local/bin/setup-cloud-defend.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      echo "=== Cloud Defend Demo Setup ==="
+      
+      # Download cloud-defend-demo repo
+      cd /tmp
+      git clone https://github.com/learhy/cloud-defend-demo.git
+      
+      # Copy binaries
+      sudo cp cloud-defend-demo/bin/eventdumper /usr/local/bin/
+      sudo cp cloud-defend-demo/bin/cloud-defend-debug-local /usr/local/bin/
+      sudo chmod +x /usr/local/bin/eventdumper /usr/local/bin/cloud-defend-debug-local
+      
+      # Copy policies
+      sudo mkdir -p /etc/cloud-defend
+      sudo cp cloud-defend-demo/policies/*.yaml /etc/cloud-defend/
+      
+      echo "=== Setup complete ==="
+
+runcmd:
+  - update-grub
+  - echo "VM ready" > /tmp/vm-ready
