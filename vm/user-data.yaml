@@ -14,32 +14,16 @@ packages:
   - curl
   - wget
   - openssh-server
+  - clang-16
+  - libbpf-dev
+  - linux-headers-generic
+  - build-essential
+  - bpftool
 
 write_files:
   - path: /etc/default/grub.d/99-bpf-lsm.cfg
     content: |
       GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT lsm=lockdown,capability,yama,apparmor,bpf"
-  - path: /usr/local/bin/setup-cloud-defend.sh
-    permissions: '0755'
-    content: |
-      #!/bin/bash
-      set -e
-      echo "=== Cloud Defend Demo Setup ==="
-      
-      # Download cloud-defend-demo repo
-      cd /tmp
-      git clone https://github.com/learhy/cloud-defend-demo.git
-      
-      # Copy binaries
-      sudo cp cloud-defend-demo/bin/eventdumper /usr/local/bin/
-      sudo cp cloud-defend-demo/bin/cloud-defend-debug-local /usr/local/bin/
-      sudo chmod +x /usr/local/bin/eventdumper /usr/local/bin/cloud-defend-debug-local
-      
-      # Copy policies
-      sudo mkdir -p /etc/cloud-defend
-      sudo cp cloud-defend-demo/policies/*.yaml /etc/cloud-defend/
-      
-      echo "=== Setup complete ==="
 
 runcmd:
   - update-grub

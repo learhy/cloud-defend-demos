@@ -45,14 +45,19 @@ if [ ! -f "${VM_DIR}/ssh-keys/demo_key" ]; then
     echo ">>> Generating local SSH key pair..."
     mkdir -p "${VM_DIR}/ssh-keys"
     ssh-keygen -t ed25519 -f "${VM_DIR}/ssh-keys/demo_key" -N "" -C "cloud-defend-demo"
-    echo ">>> IMPORTANT: Register this key in Hetzner Cloud to use it:"
-    echo "    hcloud ssh-key create --name cloud-defend --public-key-from-file ${VM_DIR}/ssh-keys/demo_key.pub"
-    echo "    Then re-run this script."
-    echo "    (If you already have a key registered, the VM will use that key instead)"
 fi
 
-# Create cloud-init config
-cat > /tmp/cd-user-data.yaml << 'CLOUDINIT'
+# Read the actual public key from the key file (dynamic, not hardcoded)
+PUBKEY=$(cat "${VM_DIR}/ssh-keys/demo_key.pub")
+echo ">>> Using SSH public key: ${PUBKEY}"
+
+# NOTE: You must also register this key in Hetzner Cloud:
+#   hcloud ssh-key create --name cloud-defend --public-key-from-file ${VM_DIR}/ssh-keys/demo_key.pub
+# The cloud-init below injects it into the VM's authorized_keys directly,
+# so the VM will accept SSH connections with this key regardless of Hetzner's key management.
+
+# Create cloud-init config (dynamically injects the actual public key)
+cat > /tmp/cd-user-data.yaml << CLOUDINIT
 #cloud-config
 hostname: cloud-defend-kvm
 manage_etc_hosts: true
@@ -62,7 +67,7 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     ssh_authorized_keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBry8f9JvIS9z6DqZrGetxzU9Xp7dVNNNh9Y+5OdvvJb cloud-defend-demo
+      - ${PUBKEY}
 
 packages:
   - jq
