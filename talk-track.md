@@ -169,8 +169,137 @@ language, and the system translates that into BPF programs that run in the
 kernel.
 
 But under the hood — and this is where it gets sophisticated — the policy
-engine is doing something really clever. Let me explain what the BPF code is
-actually doing when it evaluates a policy.
+engine is doing something really clever. But first, let me walk you through
+the policy language itself, because the design of this language is actually
+one of the things I was most involved with as a PM.
+
+---
+
+## Part 2b: The Policy Language
+
+The policy language is built around two concepts: **selectors** and
+**responses**. If you've ever written a firewall rule or an IAM policy, the
+shape of this will feel familiar — but the details are specific to the
+runtime security domain.
+
+**Selectors** describe what you're looking for. Each selector has a name and
+a set of conditions. A condition is a field and a list of values. The
+conditions within a selector are ANDed — all of them must match. So if you
+say `operation: [exec]` and `processExecutable: [/usr/bin/ps]`, both must be
+true for the selector to match.
+
+There are two namespaces of selectors: **process selectors** and **file
+selectors**. Process selectors can match on:
+
+- `operation` — `fork` or `exec`
+- `processName` — the kernel task name (the 16-byte `comm` field)
+- `processExecutable` — the full path to the binary, with wildcard support
+- `sessionLeaderInteractive` — whether the process is attached to an
+  interactive session (a TTY)
+- `containerImageName`, `containerImageTag`, `containerImageFullName` —
+  identify the container
+- `kubernetesNamespace`, `kubernetesPodName`, `kubernetesPodLabel`,
+  `kubernetesClusterId`, `kubernetesClusterName` — identify the Kubernetes
+  context
+
+File selectors can match on:
+
+- `operation` — `createExecutable`, `modifyExecutable`, `createFile`,
+  `modifyFile`, `deleteFile`
+- `targetFilePath` — the file path, with wildcard support
+- The same container and Kubernetes fields as process selectors
+- `ignoreVolumeMounts` and `ignoreVolumeFiles` — these are interesting
+  safeguards that I'll explain in a moment
+
+The wildcard system supports three patterns. A fixed path like
+`/usr/bin/foo` matches exactly that file. A single-level wildcard like
+`/usr/bin/*` matches anything one level deep — `/usr/bin/ps` matches, but
+`/usr/bin/local/ps` does not. And a recursive wildcard like `/usr/bin/**`
+matches at any depth — `/usr/bin/ps`, `/usr/bin/local/ps`,
+`/usr/bin/local/bin/ps`, all match.
+
+**Responses** describe what to do when a selector matches. Each response has
+a `match` list — the selectors that trigger it — an optional `exclude` list
+— selectors that exempt the operation — and an `actions` list. The actions
+are `log`, `alert`, and `block`.
+
+The `exclude` mechanism is where the policy language gets genuinely
+expressive. You can write a policy that says "block all executable creation
+in `/usr/bin`" and then carve out an exception: "except in
+`/usr/bin/internal`." The match selectors and the exclude selectors are
+evaluated together — if any match selector fires and *none* of the exclude
+selectors fire, the action is taken. This lets you write layered policies
+that are broad by default with specific carve-outs, which is how most
+security teams actually want to operate.
+
+The `ignoreVolumeMounts` and `ignoreVolumeFiles` fields in file selectors are
+a safeguard that the engineering team added after we saw some dangerous
+policies in testing. If you write a policy that blocks all file modifications
+globally, you can accidentally block writes to mounted volumes — configMaps,
+secrets, empty dirs — which will break the container. These fields let you
+say "match file operations, but ignore anything that's on a volume mount."
+There's also a validation rule in the policy schema: if you write a blocking
+response that references a file operation selector, you *must* either specify
+a `targetFilePath` in every matching selector or include at least one
+excluding selector with a `targetFilePath`. The system literally refuses to
+load a policy that could block all file writes without a path constraint.
+That's a product decision enforced in code — the team pushed back when I
+asked if we could make it a warning instead of an error. They were right.
+
+▶ *Optional: show the policy schema JSON*
+
+There's a JSON schema that validates every policy before it's loaded. It
+enforces things like unique selector names, valid selector references in
+responses, the length limits I mentioned earlier, and the FIM safeguard rule.
+If a policy fails validation, the agent refuses to apply it and stays on the
+previous policy — it never goes into an unconfigured state. That's important
+for a security tool: a bad policy shouldn't leave you less protected than
+you were before.
+
+Now, let me show you something that I think really makes this tangible.
+
+▶ *Live: modify the policy on the fly*
+
+One of the things I love about this system — and I'll be honest, I didn't
+appreciate this until I saw the engineers demoing it — is that you can
+change the policy while the agent is running. The config manager watches for
+a signal — SIGHUP — and when it receives one, it re-reads the config file,
+validates the new policy, and hot-swaps it into the BPF maps without
+restarting the agent and without dropping events.
+
+So let me do something you probably weren't expecting. Let me take the
+policy we're running right now — the log-all-processes policy — and modify
+it live to add a blocking rule.
+
+▶ *Edit the config file on the VM: add a process selector blocking "zcat"
+with a block action. Save the file.*
+
+▶ `sudo kill -HUP $(pidof eventdumper)`
+
+▶ *Show the log confirming "reloaded config due to SIGHUP"*
+
+And now, without restarting anything, without recompiling any BPF code, the
+policy has changed. The BPF maps have been updated. Let me prove it:
+
+▶ `echo test | zcat`
+```
+/usr/bin/zcat: 51: exec: gzip: Operation not permitted
+```
+
+That was a log-only policy thirty seconds ago. I added one selector and one
+response — six lines of YAML — sent a signal, and now `zcat` is blocked at
+the kernel level. The BPF programs didn't change. The verifier didn't need
+to re-run. What changed was the contents of the hash maps that the BPF
+programs query. The programs are fixed; the policy is data.
+
+This is the abstraction I was talking about at the beginning. How do you
+take something that lives in the kernel and make it accessible to someone
+who writes YAML, not C? This is how. The BPF programs are compiled once,
+verified once, loaded once. The policy is just data in maps, and it can
+change at any time.
+
+Now, let me explain what the BPF code is actually doing when it evaluates
+that policy — because this is where it gets really sophisticated.
 
 ---
 
