@@ -1,19 +1,17 @@
 # Policy 2: Block Dangerous Commands and Protect /etc/passwd
 #
 # This policy blocks:
-#   1. Execution of "ps" and "zcat" (by process name)
+#   1. Execution of "ps" and "zcat" (by executable path)
 #   2. All modifications to /etc/passwd (create, modify, delete)
+#
+# Note: processExecutable matches against the full path of the binary being
+# exec'd (e.g., /usr/bin/ps), which is available at bprm_check_security time
+# via the binprm->file->f_path. processName matches task->comm which is the
+# calling process's name, not the new binary.
 #
 # Note on /etc/passwd protection:
 #   Cloud-defend's file_open BPF hook only fires for files opened for
 #   writing (FMODE_WRITE). The tool does not intercept file reads.
-#   Therefore this policy blocks writes/modifications/deletions to
-#   /etc/passwd, which prevents tampering with the user database.
-#   Reads of /etc/passwd are not intercepted by the BPF-LSM hooks
-#   that cloud-defend attaches to.
-#
-# When a blocked operation is attempted, the calling process receives
-# EPERM (operation not permitted) and an alert event is generated.
 
 elasticsearch:
   api_key: "demo"
@@ -34,14 +32,14 @@ security-policy:
   version: "1.0.0"
   process:
     selectors:
-      # Match exec of "ps" (kernel task name / comm field)
+      # Match exec of ps by executable path
       - name: blockPs
         operation: [ exec ]
-        processName: [ ps ]
-      # Match exec of "zcat"
+        processExecutable: [ /usr/bin/ps ]
+      # Match exec of zcat by executable path
       - name: blockZcat
         operation: [ exec ]
-        processName: [ zcat ]
+        processExecutable: [ /usr/bin/zcat, /bin/zcat ]
     responses:
       # Block and alert on ps execution
       - match: [ blockPs ]
@@ -56,28 +54,21 @@ security-policy:
       - name: passwdModify
         operation: [ modifyFile ]
         targetFilePath: [ /etc/passwd ]
-      # Match deletion of /etc/passwd
       - name: passwdDelete
         operation: [ deleteFile ]
         targetFilePath: [ /etc/passwd ]
-      # Match creation of executables at /etc/passwd (attack: replace passwd with binary)
       - name: passwdCreateExe
         operation: [ createExecutable ]
         targetFilePath: [ /etc/passwd ]
-      # Match modification of /etc/passwd if it's an executable
       - name: passwdModifyExe
         operation: [ modifyExecutable ]
         targetFilePath: [ /etc/passwd ]
     responses:
-      # Block and alert on any modification to /etc/passwd
       - match: [ passwdModify ]
         actions: [ block, alert ]
-      # Block and alert on deletion of /etc/passwd
       - match: [ passwdDelete ]
         actions: [ block, alert ]
-      # Block and alert on creating an executable at /etc/passwd
       - match: [ passwdCreateExe ]
         actions: [ block, alert ]
-      # Block and alert on modifying /etc/passwd as an executable
       - match: [ passwdModifyExe ]
         actions: [ block, alert ]

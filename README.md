@@ -1,48 +1,94 @@
 # Cloud Defend Demos
 
 A complete, reproducible demo kit for **Elastic Cloud Defend** — a BPF-LSM based
-runtime security tool for Linux. This repo contains everything you need to spin
-up a virtual machine, install the security agent, configure policies, and see
-real BPF-LSM security enforcement in action.
+runtime security tool for Linux. Spin up a VM, install the security agent, load
+policies, and watch real BPF-LSM enforcement in action.
 
-## What is Cloud Defend?
+## What Is Cloud Defend?
 
-Cloud Defend is Elastic's "Defend for Containers" — a tool that uses Linux
-BPF-LSM (Berkeley Packet Filter - Linux Security Module) hooks to monitor and
-block process execution and file modifications at the kernel level. It provides
-a flexible policy language for defining security rules.
+Cloud Defend is Elastic's "Defend for Containers." It uses Linux **BPF-LSM**
+(Berkeley Packet Filter — Linux Security Module) hooks to monitor and block
+process execution and file modifications at the kernel level — *before* the
+operation completes. This is preemptive blocking, not reactive logging.
 
-This demo includes:
-1. A **minimal BPF-LSM security agent** that demonstrates the same concepts as
-   the full Cloud Defend tool, but with simple BPF programs that load quickly
-   even under QEMU TCG emulation.
-2. **Two security policies** matching the Cloud Defend policy format.
-3. **VM provisioning scripts** to create a QEMU VM with BPF-LSM enabled.
-4. **Test scripts** to verify both policies work correctly.
+This demo includes two policies:
 
-## Quick Start
+1. **Log all process activity** — every `fork` and `exec` generates a JSON event
+2. **Block dangerous commands + protect `/etc/passwd`** — blocks `ps` and `zcat`
+   execution, blocks writes to `/etc/passwd`
+
+## Two Ways To Run
+
+### Path A: Real Cloud Defend eventdumper (recommended)
+
+Uses the pre-built `eventdumper` binary from the
+[cloud-defend-demo](https://github.com/learhy/cloud-defend-demo) repo. This is
+the actual Elastic tool, loading the real BPF probes and processing the real
+YAML policy language. Requires a **KVM VM** (the BPF verifier is too complex
+for QEMU TCG emulation).
+
+**Time:** ~10 minutes · **Cost:** ~€0.01 on Hetzner Cloud
 
 ```bash
 # 1. Clone this repo
-git clone https://github.com/learhy/cloud-defend-demos.git
+git clone git@github.com:learhy/cloud-defend-demos.git
 cd cloud-defend-demos
 
-# 2. Create the VM (requires QEMU, ~20GB disk, 4GB RAM)
+# 2. Clone the binaries repo (private — needs GitHub access)
+git clone git@github.com:learhy/cloud-defend-demo.git
+
+# 3. Create a KVM VM on Hetzner Cloud
+export HCLOUD_TOKEN=your_hetzner_token
+./scripts/create-kvm-vm.sh
+
+# 4. Wait ~3 min for cloud-init + reboot
+#    Check: VM_IP=$(cat vm/kvm-vm-ip.txt)
+#    ssh -i vm/ssh-keys/demo_key demo@$VM_IP cat /sys/kernel/security/lsm
+#    Should show: lockdown,capability,yama,apparmor,bpf
+
+# 5. Install eventdumper + policies on the VM
+./scripts/install-eventdumper-on-kvm.sh $(cat vm/kvm-vm-ip.txt)
+
+# 6. Test Policy 1: log all process activity
+./scripts/test-eventdumper-policy-1.sh $(cat vm/kvm-vm-ip.txt)
+
+# 7. Test Policy 2: block commands + protect /etc/passwd
+./scripts/test-eventdumper-policy-2.sh $(cat vm/kvm-vm-ip.txt)
+
+# 8. Destroy the VM when done
+./scripts/destroy-kvm-vm.sh
+```
+
+### Path B: Minimal BPF-LSM demo (no KVM required)
+
+Uses a minimal BPF-LSM program that demonstrates the same security concepts but
+with simple BPF code that loads fast even under QEMU TCG emulation. Works on any
+Linux host with QEMU. The policies are simple text files, not the real Cloud
+Defend YAML format.
+
+**Time:** ~5 minutes · **Cost:** free
+
+```bash
+# 1. Clone this repo
+git clone git@github.com:learhy/cloud-defend-demos.git
+cd cloud-defend-demos
+
+# 2. Create a local QEMU VM (auto-detects KVM, falls back to TCG)
 ./scripts/create-vm.sh
 
-# 3. Wait for VM to boot and SSH to be available (~2-3 min under TCG)
+# 3. Wait for SSH (2-3 min under TCG)
 ./scripts/wait-for-vm.sh
 
-# 4. Install the demo on the VM
+# 4. Install and compile the minimal BPF demo on the VM
 ./scripts/install-on-vm.sh
 
-# 5. Test Policy 1: Log all process activity
+# 5. Test Policy 1: log all process activity
 ./scripts/test-policy-1.sh
 
-# 6. Test Policy 2: Block commands and protect /etc/passwd
+# 6. Test Policy 2: block commands + protect /etc/passwd
 ./scripts/test-policy-2.sh
 
-# 7. When done, destroy the VM
+# 7. Destroy the VM when done
 ./scripts/destroy-vm.sh
 ```
 
@@ -50,12 +96,19 @@ cd cloud-defend-demos
 
 ### Policy 1: Log All Process Activity
 
-Every `execve()` system call generates a JSON event printed to stdout:
+The eventdumper outputs JSON events to stdout. With the real eventdumper you'll
+see events like:
+
+```json
+{"type":"process_fork_event","body":{"parent_pids":{"tgid":1,"pgid":1},"child_pids":{"tgid":2345,"pgid":2345},...}}
+{"type":"process_exec_event","body":{"pids":{"tgid":2345},"filename":"/usr/bin/ls",...}}
+```
+
+With the minimal BPF demo you'll see simpler JSON:
 
 ```json
 {"timestamp":1786608175,"pid":1176,"uid":0,"action":"LOG","op_type":"exec","comm":"sshd","filename":"/usr/sbin/sshd"}
 {"timestamp":1786608176,"pid":1179,"uid":0,"action":"LOG","op_type":"exec","comm":"sh","filename":"/bin/sh"}
-{"timestamp":1786608176,"pid":1180,"uid":0,"action":"LOG","op_type":"exec","comm":"env","filename":"/usr/bin/env"}
 ```
 
 ### Policy 2: Block Commands + Protect /etc/passwd
@@ -64,117 +117,127 @@ Blocked commands return `EPERM` (Operation not permitted):
 
 ```
 $ zcat /etc/hostname
-/usr/bin/zcat: 51: exec: gzip: Operation not permitted
+/usr/bin/zcat: 51: exec: gzip: Operation not permitted    # exit 126
 
-$ echo test | sudo tee -a /etc/passwd
-tee: /etc/passwd: Operation not permitted
-```
+$ echo hacker | sudo tee -a /etc/passwd
+tee: /etc/passwd: Operation not permitted                 # exit 1
 
-Block events are logged as JSON:
-
-```json
-{"timestamp":1786608411,"pid":2314,"uid":1000,"action":"BLOCK","op_type":"exec","comm":"zcat","filename":"/usr/bin/gzip"}
-{"timestamp":1786608411,"pid":2318,"uid":0,"action":"BLOCK","op_type":"file_write","comm":"tee","filename":"/etc/passwd"}
+$ ls /tmp                                                 # works normally
 ```
 
 ## Repository Structure
 
 ```
 cloud-defend-demos/
-├── README.md                  ← This file
-├── vm/
-│   ├── user-data.yaml         ← Cloud-init config (SSH keys, grub BPF-LSM)
-│   ├── meta-data.yaml         ← Cloud-init metadata
-│   └── create-vm.sh           ← QEMU VM creation script
-├── bpf-demo/
-│   ├── lsm_demo.bpf.c         ← BPF-LSM kernel program (exec + file_open hooks)
-│   ├── lsm_demo_user.c        ← Userspace event reader and policy loader
-│   ├── Makefile               ← Build system for BPF demo
-│   ├── policy-1-log-all.txt   ← Simple policy: log all process activity
-│   └── policy-2-block.txt     ← Simple policy: block ps/zcat + protect passwd
-├── policies/
-│   ├── policy-1-log-all-processes.yaml       ← Cloud Defend format policy
-│   └── policy-2-block-commands-protect-passwd.yaml ← Cloud Defend format policy
-└── scripts/
-    ├── create-vm.sh           ← Create the QEMU VM
-    ├── wait-for-vm.sh         ← Wait for SSH to be available
-    ├── install-on-vm.sh       ← Install BPF demo on the VM
-    ├── test-policy-1.sh       ← Test logging policy
-    ├── test-policy-2.sh       ← Test blocking policy
-    └── destroy-vm.sh          ← Destroy the VM
+├── README.md                     ← This file
+├── talk-track.md                  ← Presentation script for a ~15 min demo
+│
+├── policies/                      ← Real Cloud Defend YAML policies
+│   ├── policy-1-log-all-processes.yaml
+│   └── policy-2-block-commands-protect-passwd.yaml
+│
+├── vm/                            ← VM provisioning config
+│   ├── user-data.yaml             ← Cloud-init (SSH keys, grub BPF-LSM)
+│   ├── meta-data.yaml
+│   └── fake-k8s.yaml              ← Empty k8s resources (eventdumper needs this)
+│
+├── scripts/                       ← Automation scripts
+│   ├── create-kvm-vm.sh           ← Create Hetzner KVM VM (Path A)
+│   ├── install-eventdumper-on-kvm.sh  ← Install eventdumper on KVM VM (Path A)
+│   ├── test-eventdumper-policy-1.sh   ← Test Policy 1 with eventdumper (Path A)
+│   ├── test-eventdumper-policy-2.sh   ← Test Policy 2 with eventdumper (Path A)
+│   ├── destroy-kvm-vm.sh          ← Destroy Hetzner VM (Path A)
+│   ├── create-vm.sh               ← Create local QEMU VM (Path B)
+│   ├── wait-for-vm.sh             ← Wait for QEMU VM SSH (Path B)
+│   ├── install-on-vm.sh           ← Install minimal BPF demo (Path B)
+│   ├── test-policy-1.sh           ← Test Policy 1 with minimal demo (Path B)
+│   ├── test-policy-2.sh           ← Test Policy 2 with minimal demo (Path B)
+│   └── destroy-vm.sh              ← Destroy QEMU VM (Path B)
+│
+└── bpf-demo/                      ← Minimal BPF-LSM demo (Path B)
+    ├── lsm_demo.bpf.c             ← BPF kernel program (exec + file_open hooks)
+    ├── lsm_demo_user.c            ← Userspace event reader and policy loader
+    ├── Makefile
+    ├── policy-1-log-all.txt       ← Simple policy for minimal demo
+    └── policy-2-block-and-protect.txt
 ```
 
 ## Requirements
 
-### Host Machine (where you run the scripts)
-- Linux with QEMU installed (`qemu-system-x86_64`)
-- `cloud-localds` (for cloud-init seed image)
-- `ssh` and `scp`
-- ~20GB free disk space
-- 4GB+ RAM for the VM
+### Path A (real eventdumper)
 
-### VM (created by the scripts)
-- Ubuntu 24.04 LTS cloud image
-- Kernel 5.10+ with `CONFIG_BPF_LSM=y`
-- Boot parameter `lsm=...bpf...` (configured automatically via grub)
-- `clang-16`, `libbpf-dev`, `linux-headers`, `build-essential` (installed automatically)
+- A [Hetzner Cloud](https://www.hetzner.com/cloud) account (€0.01-0.05 per demo run)
+- `hcloud` CLI (auto-installed by the script)
+- `HCLOUD_TOKEN` environment variable
+- An SSH key registered in Hetzner Cloud
+- `git clone` access to the private `learhy/cloud-defend-demo` repo
+- The VM gets: Ubuntu 24.04, kernel 6.8 with BPF-LSM, clang-16, libbpf-dev
+
+### Path B (minimal BPF demo)
+
+- Linux host with QEMU installed (`qemu-system-x86_64`)
+- `cloud-localds` for cloud-init seed images
+- `ssh` and `scp`
+- ~20GB free disk, 4GB+ RAM
+- KVM optional (falls back to TCG automatically)
 
 ## How It Works
 
 ### BPF-LSM Architecture
 
-The demo uses two Linux Security Module (LSM) hooks:
+The demo uses two Linux Security Module hooks:
 
-1. **`bprm_check_security`** — Fires before every `execve()` call. The BPF
-   program checks the process name against a hash map of blocked commands and
-   either logs the event or returns `-EPERM` to block execution.
+1. **`bprm_check_security`** — fires before every `execve()`. The BPF program
+   checks the executable path against blocked paths and either logs the event
+   or returns `-EPERM` to block execution.
 
-2. **`file_open`** — Fires on every file open. The BPF program checks if the
-   file is `/etc/passwd` and opened for writing (`FMODE_WRITE`), and if so,
-   returns `-EPERM` to block the write.
+2. **`file_open`** — fires on every file open. If the file is `/etc/passwd`
+   opened for writing (`FMODE_WRITE`), the BPF program returns `-EPERM`.
 
-### Communication Between Kernel and Userspace
+### Event Delivery
 
-Events flow from the BPF program to userspace via a **BPF ring buffer**:
-- The BPF program reserves space in the ring buffer with `bpf_ringbuf_reserve()`
-- Fills in an event struct (pid, uid, comm, filename, blocked flag)
-- Submits with `bpf_ringbuf_submit()`
-- The userspace program polls the ring buffer with `ring_buffer__poll()` and
-  prints each event as JSON to stdout
+Events flow from the BPF program to userspace via a **BPF ring buffer**. The
+userspace process polls the ring buffer and prints each event as JSON to stdout.
 
-### Policy Configuration
+### Policy Format
 
-The userspace program reads policy from command-line flags or a simple YAML-like
-file. Blocked commands are written to a BPF hash map (`blocked_commands`) that
-the BPF program queries on every exec.
+**Real Cloud Defend policies** (Path A) use the YAML format documented in the
+[Cloud Defend policy guide](https://www.elastic.co/guide/en/security/current/d4c-policy-guide.html).
+Policies consist of **selectors** (what to match) and **responses** (what to do
+when matched). See the policy files in `policies/` for examples.
 
-## Limitations and Notes
+**Minimal demo policies** (Path B) use a simple text format:
+```
+log_all: true
+block: ps
+block: zcat
+protect_passwd: true
+```
 
-1. **`ps` blocking**: The BPF program uses `bpf_get_current_comm()` to get the
-   process name, which at `bprm_check_security` time returns the *calling*
-   process name (usually `bash`), not the binary being exec'd. The full Cloud
-   Defend tool handles this with complex BPF code that reads `bprm->filename`,
-   but that code is too complex for the BPF verifier under QEMU TCG emulation.
-   `zcat` is blocked because it's a shell script wrapper that calls `gzip` via
-   `exec`, and at that point `comm` is `zcat`.
+## Key Design Notes
 
-2. **No KVM**: If your host supports KVM (hardware virtualization), the VM will
-   be much faster and the full Cloud Defend `eventdumper` binary (included in
-   the `cloud-defend-demo` repo) may also work. Without KVM (nested virt), we
-   use QEMU TCG which is slower.
+1. **`ps` blocking uses `processExecutable`, not `processName`**: The
+   `processName` selector matches `task->comm` (the *calling* process name, e.g.
+   `bash`), not the binary being exec'd. `processExecutable` matches
+   `bprm->file->f_path` (the actual binary path, e.g. `/usr/bin/ps`).
 
-3. **File read blocking**: Cloud Defend's `file_open` hook only fires for files
-   opened for **writing** (`FMODE_WRITE`). Reads are not intercepted. This is a
-   design decision in the BPF-LSM hooks — the tool prevents tampering with
-   `/etc/passwd`, not reading it.
+2. **`/etc/passwd` protection blocks writes, not reads**: Cloud Defend's
+   `file_open` hook only fires for files opened with `FMODE_WRITE`. Reads are
+   not intercepted. This prevents tampering with the user database — it does
+   not prevent reading it.
 
-4. **Full Cloud Defend**: The pre-built `cloud-defend` and `eventdumper` binaries
-   are in the [cloud-defend-demo](https://github.com/learhy/cloud-defend-demo)
-   repo. These work on real KVM machines with BPF-LSM but their BPF programs are
-   too complex for the QEMU TCG verifier to complete in reasonable time.
+3. **BPF verifier complexity**: The real Cloud Defend BPF programs are among the
+   most complex BPF programs ever written. They push the BPF verifier to its
+   limits. Under QEMU TCG (software emulation), the verifier can take 10+
+   minutes or never complete. On a real KVM VM, it completes in ~15 seconds.
+
+4. **`zcat` blocking**: `zcat` is a shell script wrapper that calls `exec gzip`.
+   The BPF program sees the `comm` field change to `zcat` at the wrapper level.
+   The `processExecutable` path `/usr/bin/zcat` or `/bin/zcat` matches the
+   binary path at `bprm_check_security` time.
 
 ## License
 
-The BPF demo code is licensed under GPL-2.0 (required for BPF programs).
-The Cloud Defend source is licensed by Elastic under various licenses — see
-the [cloud-defend-demo](https://github.com/learhy/cloud-defend-demo) repo.
+The BPF demo code is GPL-2.0 (required for BPF programs).
+Cloud Defend source is licensed by Elastic under various licenses — see the
+[cloud-defend-demo](https://github.com/learhy/cloud-defend-demo) repo.

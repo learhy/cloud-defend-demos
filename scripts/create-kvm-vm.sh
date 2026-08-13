@@ -7,8 +7,17 @@
 #   - HCLOUD_TOKEN environment variable
 #   - An SSH key registered in Hetzner Cloud
 #
+# After creation, the VM will:
+#   1. Install packages (clang-16, libbpf-dev, etc.)
+#   2. Configure grub with lsm=...bpf...
+#   3. Reboot to enable BPF-LSM
+#
+# Wait ~3 minutes after this script finishes, then run:
+#   ./scripts/install-eventdumper-on-kvm.sh <VM_IP>
+#
 set -e
 
+VM_DIR="${VM_DIR:-./vm}"
 SSH_PORT="${SSH_PORT:-22}"
 VM_NAME="${VM_NAME:-cloud-defend-kvm}"
 SERVER_TYPE="${SERVER_TYPE:-cpx22}"  # 2 vCPU, 4GB RAM, 80GB disk ~€4/mo
@@ -31,8 +40,19 @@ if [ -z "$SSH_KEY_ID" ]; then
 fi
 echo ">>> Using SSH key ID: $SSH_KEY_ID"
 
+# Generate SSH key pair locally if not present (for SSH access)
+if [ ! -f "${VM_DIR}/ssh-keys/demo_key" ]; then
+    echo ">>> Generating local SSH key pair..."
+    mkdir -p "${VM_DIR}/ssh-keys"
+    ssh-keygen -t ed25519 -f "${VM_DIR}/ssh-keys/demo_key" -N "" -C "cloud-defend-demo"
+    echo ">>> IMPORTANT: Register this key in Hetzner Cloud to use it:"
+    echo "    hcloud ssh-key create --name cloud-defend --public-key-from-file ${VM_DIR}/ssh-keys/demo_key.pub"
+    echo "    Then re-run this script."
+    echo "    (If you already have a key registered, the VM will use that key instead)"
+fi
+
 # Create cloud-init config
-cat > /tmp/cd-user-data.yaml << 'EOF'
+cat > /tmp/cd-user-data.yaml << 'CLOUDINIT'
 #cloud-config
 hostname: cloud-defend-kvm
 manage_etc_hosts: true
@@ -63,7 +83,7 @@ write_files:
 runcmd:
   - update-grub
   - reboot
-EOF
+CLOUDINIT
 
 # Create the server
 echo ">>> Creating Hetzner Cloud VM ($SERVER_TYPE)..."
@@ -77,13 +97,22 @@ hcloud server create \
 
 # Get the IP
 VM_IP=$(hcloud server list 2>&1 | grep "$VM_NAME" | awk '{print $4}')
+
+# Save the IP for subsequent scripts
+echo "$VM_IP" > "${VM_DIR}/kvm-vm-ip.txt"
+
 echo ""
 echo ">>> VM created at IP: $VM_IP"
+echo ">>> IP saved to ${VM_DIR}/kvm-vm-ip.txt"
+echo ""
 echo ">>> The VM will automatically:"
 echo "    1. Install packages (clang-16, libbpf-dev, etc.)"
 echo "    2. Configure grub with lsm=...bpf..."
 echo "    3. Reboot to enable BPF-LSM"
 echo ""
 echo ">>> Wait ~3 minutes for cloud-init + reboot, then:"
-echo "    ssh -i vm/ssh-keys/demo_key demo@$VM_IP"
-echo "    cat /sys/kernel/security/lsm  # should show 'bpf'"
+echo "    ./scripts/install-eventdumper-on-kvm.sh $VM_IP"
+echo ""
+echo ">>> Or use the saved IP:"
+echo "    VM_IP=\$(cat ${VM_DIR}/kvm-vm-ip.txt)"
+echo "    ./scripts/install-eventdumper-on-kvm.sh \$VM_IP"
