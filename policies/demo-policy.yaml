@@ -1,0 +1,102 @@
+# Demo Policy — Single policy file with commented-out sections.
+#
+# This file is the one that runs live on the VM at /tmp/cloud-defend.yaml.
+# The presenter edits it in real time during the demo, uncommenting lines
+# to enable FIM protection, then reloading with SIGHUP.
+#
+# Lines marked with "# LIVE:" are commented out initially and uncommented
+# during the demo to show hot-swap policy changes.
+
+elasticsearch:
+  api_key: "demo"
+  hosts:
+    - "http://localhost:9200"
+
+indexes:
+  alerts: logs-cloud_defend.alerts-default
+  file: logs-cloud_defend.file-default
+  process: logs-cloud_defend.process-default
+  metrics: metrics-cloud_defend.metrics-default
+
+package_policy:
+  package_policy_id: ""
+  package_policy_revision: 1
+
+security-policy:
+  version: "1.0.0"
+
+  process:
+    selectors:
+      # --- ACTIVE: Block ps and zcat, log everything else ---
+      - name: blockPs
+        operation: [ exec ]
+        processExecutable: [ /usr/bin/ps ]
+
+      - name: blockZcat
+        operation: [ exec ]
+        processExecutable: [ /usr/bin/zcat, /bin/zcat ]
+
+      - name: logAllExec
+        operation: [ exec ]
+
+      # --- LIVE: Uncomment to also block cat ---
+      # - name: blockCat
+      #   operation: [ exec ]
+      #   processExecutable: [ /usr/bin/cat, /bin/cat ]
+
+      # --- LIVE: Uncomment to also block rm ---
+      # - name: blockRm
+      #   operation: [ exec ]
+      #   processExecutable: [ /usr/bin/rm, /bin/rm ]
+
+    responses:
+      - match: [ blockPs ]
+        actions: [ block, alert ]
+      - match: [ blockZcat ]
+        actions: [ block, alert ]
+      - match: [ logAllExec ]
+        actions: [ log ]
+
+      # --- LIVE: Uncomment to block cat ---
+      # - match: [ blockCat ]
+      #   actions: [ block, alert ]
+
+      # --- LIVE: Uncomment to block rm ---
+      # - match: [ blockRm ]
+      #   actions: [ block, alert ]
+
+  file:
+    selectors:
+      # --- LIVE: Uncomment to FIM-protect /etc/passwd ---
+      # - name: passwdModify
+      #   operation: [ modifyFile ]
+      #   targetFilePath: [ /etc/passwd ]
+      # - name: passwdDelete
+      #   operation: [ deleteFile ]
+      #   targetFilePath: [ /etc/passwd ]
+      # - name: passwdCreate
+      #   operation: [ createFile ]
+      #   targetFilePath: [ /etc/passwd ]
+
+      # --- LIVE: Uncomment to FIM-protect /etc/shadow ---
+      # - name: shadowModify
+      #   operation: [ modifyFile ]
+      #   targetFilePath: [ /etc/shadow ]
+      # - name: shadowDelete
+      #   operation: [ deleteFile ]
+      #   targetFilePath: [ /etc/shadow ]
+
+    responses:
+      # --- LIVE: Uncomment to block /etc/passwd writes ---
+      # - match: [ passwdModify ]
+      #   actions: [ block, alert ]
+      # - match: [ passwdDelete ]
+      #   actions: [ block, alert ]
+      # - match: [ passwdCreate ]
+      #   actions: [ block, alert ]
+
+      # --- LIVE: Uncomment to block /etc/shadow writes ---
+      # - match: [ shadowModify ]
+      #   actions: [ block, alert ]
+      # - match: [ shadowDelete ]
+      #   actions: [ block, alert ]

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debian-demo
+  namespace: demo
+  labels:
+    app: debian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: debian
+  template:
+    metadata:
+      labels:
+        app: debian
+    spec:
+      containers:
+      - name: debian
+        image: debian:bookworm
+        command: ["sleep", "3600"]
+        imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-demo
+  namespace: demo
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        command: ["nginx", "-g", "daemon off;"]
+        imagePullPolicy: IfNotPresent
