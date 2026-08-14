@@ -65,40 +65,37 @@ security-policy:
       # - match: [ blockRm ]
       #   actions: [ block, alert ]
 
-  file:
-    # NOTE: When uncommenting selectors below, change "selectors: []" to "selectors:"
-    selectors: []
-      # --- LIVE: Uncomment to FIM-protect /etc/passwd ---
-      # - name: passwdModify
-      #   operation: [ modifyFile ]
-      #   targetFilePath: [ /etc/passwd ]
-      # - name: passwdDelete
-      #   operation: [ deleteFile ]
-      #   targetFilePath: [ /etc/passwd ]
-      # - name: passwdCreate
-      #   operation: [ createFile ]
-      #   targetFilePath: [ /etc/passwd ]
-
-      # --- LIVE: Uncomment to FIM-protect /etc/shadow ---
-      # - name: shadowModify
-      #   operation: [ modifyFile ]
-      #   targetFilePath: [ /etc/shadow ]
-      # - name: shadowDelete
-      #   operation: [ deleteFile ]
-      #   targetFilePath: [ /etc/shadow ]
-
-    responses: []
-      # --- LIVE: Uncomment to block /etc/passwd writes ---
-      # NOTE: When uncommenting, change "responses: []" to "responses:"
-      # - match: [ passwdModify ]
-      #   actions: [ block, alert ]
-      # - match: [ passwdDelete ]
-      #   actions: [ block, alert ]
-      # - match: [ passwdCreate ]
-      #   actions: [ block, alert ]
-
-      # --- LIVE: Uncomment to block /etc/shadow writes ---
-      # - match: [ shadowModify ]
-      #   actions: [ block, alert ]
-      # - match: [ shadowDelete ]
-      #   actions: [ block, alert ]
+  # ──────────────────────────────────────────────────────────
+  # LIVE: To enable FIM protection, uncomment the entire file:
+  # section below (both selectors AND responses), then SIGHUP.
+  # ──────────────────────────────────────────────────────────
+  # file:
+  #   selectors:
+  #     - name: passwdModify
+  #       operation: [ modifyFile ]
+  #       targetFilePath: [ /etc/passwd ]
+  #     - name: passwdDelete
+  #       operation: [ deleteFile ]
+  #       targetFilePath: [ /etc/passwd ]
+  #     - name: passwdCreate
+  #       operation: [ createFile ]
+  #       targetFilePath: [ /etc/passwd ]
+  #     # --- LIVE: Uncomment to also protect /etc/shadow ---
+  #     # - name: shadowModify
+  #     #   operation: [ modifyFile ]
+  #     #   targetFilePath: [ /etc/shadow ]
+  #     # - name: shadowDelete
+  #     #   operation: [ deleteFile ]
+  #     #   targetFilePath: [ /etc/shadow ]
+  #   responses:
+  #     - match: [ passwdModify ]
+  #       actions: [ block, alert ]
+  #     - match: [ passwdDelete ]
+  #       actions: [ block, alert ]
+  #     - match: [ passwdCreate ]
+  #       actions: [ block, alert ]
+  #     # --- LIVE: Uncomment to also block /etc/shadow writes ---
+  #     # - match: [ shadowModify ]
+  #     #   actions: [ block, alert ]
+  #     # - match: [ shadowDelete ]
+  #     #   actions: [ block, alert ]
