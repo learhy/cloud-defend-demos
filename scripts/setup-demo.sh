@@ -45,6 +45,8 @@ if [ -z "$SSH_KEY_ID" ]; then
         mkdir -p "${VM_DIR}/ssh-keys"
         ssh-keygen -t ed25519 -f "${VM_DIR}/ssh-keys/demo_key" -N "" -C "cloud-defend-demo"
     fi
+    chmod 600 "${VM_DIR}/ssh-keys/demo_key"
+    chmod 644 "${VM_DIR}/ssh-keys/demo_key.pub"
     PUBKEY=$(cat "${VM_DIR}/ssh-keys/demo_key.pub")
     hcloud ssh-key create --name cloud-defend-demo --public-key-from-file "${VM_DIR}/ssh-keys/demo_key.pub" 2>/dev/null || true
     SSH_KEY_ID=$(hcloud ssh-key list 2>&1 | grep cloud-defend-demo | awk '{print $1}')
