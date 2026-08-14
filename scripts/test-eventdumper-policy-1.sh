@@ -34,7 +34,7 @@ sudo tee /opt/cloud-defend/start-eventdumper.sh > /dev/null << 'LAUNCHER'
 #!/bin/bash
 ulimit -l unlimited
 cd /opt/cloud-defend
-exec ./eventdumper --config /tmp/cloud-defend.yaml --k8s-resources /opt/cloud-defend/fake-k8s.yaml > ${EVT_LOG} 2>${ERR_LOG}
+exec ./eventdumper --config /tmp/cloud-defend.yaml --k8s-resources /opt/cloud-defend/k8s-resources.yaml > ${EVT_LOG} 2>${ERR_LOG}
 LAUNCHER
 sudo chmod +x /opt/cloud-defend/start-eventdumper.sh
 echo done"

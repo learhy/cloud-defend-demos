@@ -113,13 +113,13 @@ cloud-defend-demos/
 │   └── deployments.yaml             ← Debian + nginx Deployments
 ├── vm/
 │   ├── ssh-keys/                    ← Demo SSH key
-│   └── fake-k8s.yaml
+│   └── k8s-resources.yaml
 └── scripts/
     ├── setup-demo.sh                ← ONE script to provision everything
     ├── destroy-kvm-vm.sh            ← Destroy the VM
     ├── create-kvm-vm.sh             ← Create VM only (without pods/policy)
     ├── install-eventdumper-on-kvm.sh ← Install eventdumper only
-    ├── setup-k3s-pods.sh            ← Create pods + fake-k8s.yaml only
+    ├── setup-k3s-pods.sh            ← Create pods + k8s-resources.yaml only
     └── ...                          ← Fallback QEMU scripts
 ```
 

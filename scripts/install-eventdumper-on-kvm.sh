@@ -67,7 +67,7 @@ scp ${SSH_OPTS} -P ${SSH_PORT} "${BIN_DIR}/eventdumper" ${REMOTE}:/opt/cloud-def
 ssh ${SSH_OPTS} -p ${SSH_PORT} ${REMOTE} "sudo chmod +x /opt/cloud-defend/eventdumper && /opt/cloud-defend/eventdumper --help 2>&1 | head -3"
 echo ""
 
-# Step 4: Copy policies and fake-k8s config
+# Step 4: Copy policies and k8s-resources config
 echo ">>> Step 4: Copying policies..."
 scp ${SSH_OPTS} -P ${SSH_PORT} \
     policies/policy-1-log-all-processes.yaml \
@@ -75,13 +75,13 @@ scp ${SSH_OPTS} -P ${SSH_PORT} \
     ${REMOTE}:/opt/cloud-defend/policies/
 
 scp ${SSH_OPTS} -P ${SSH_PORT} \
-    vm/fake-k8s.yaml \
+    vm/k8s-resources.yaml \
     ${REMOTE}:/opt/cloud-defend/
 
 ssh ${SSH_OPTS} -p ${SSH_PORT} ${REMOTE} << 'EOF'
     sudo cp /opt/cloud-defend/policies/policy-1-log-all-processes.yaml /tmp/cloud-defend.yaml
-    sudo cp /opt/cloud-defend/fake-k8s.yaml /tmp/fake-k8s.yaml
-    sudo chown demo:demo /tmp/cloud-defend.yaml /tmp/fake-k8s.yaml
+    sudo cp /opt/cloud-defend/k8s-resources.yaml /tmp/k8s-resources.yaml
+    sudo chown demo:demo /tmp/cloud-defend.yaml /tmp/k8s-resources.yaml
     echo "    Policies installed:"
     ls -la /opt/cloud-defend/policies/
 EOF

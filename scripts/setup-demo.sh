@@ -7,7 +7,7 @@
 #   2. Waits for it to boot
 #   3. Installs the eventdumper binary + demo policy
 #   4. Creates k8s Deployments (debian + nginx)
-#   5. Generates fake-k8s.yaml and starts eventdumper
+#   5. Generates k8s-resources.yaml and starts eventdumper
 #   6. Prints everything the user needs to demo: SSH command, policy file
 #      path, kubectl exec commands, and the log-watching command
 #
@@ -130,7 +130,7 @@ echo ">>> Installing eventdumper and demo policy..."
 ssh -T $SSH_OPTS $REMOTE "sudo mkdir -p /opt/cloud-defend/policies && sudo chown -R demo:demo /opt/cloud-defend"
 scp $SSH_OPTS "bin/eventdumper" $REMOTE:/opt/cloud-defend/eventdumper
 scp $SSH_OPTS "policies/demo-policy.yaml" $REMOTE:/opt/cloud-defend/policies/
-scp $SSH_OPTS "vm/fake-k8s.yaml" $REMOTE:/opt/cloud-defend/
+scp $SSH_OPTS "vm/k8s-resources.yaml" $REMOTE:/opt/cloud-defend/
 ssh -T $SSH_OPTS $REMOTE "sudo chmod +x /opt/cloud-defend/eventdumper && sudo chmod -x /etc/update-motd.d/* 2>/dev/null; true"
 
 # ──────────────────────────────────────────────────────
@@ -198,15 +198,15 @@ echo "Pods ready."
 '
 
 # ──────────────────────────────────────────────────────
-# Step 5: Generate fake-k8s.yaml and start eventdumper
+# Step 5: Generate k8s-resources.yaml and start eventdumper
 # ──────────────────────────────────────────────────────
-echo ">>> Generating fake-k8s.yaml and starting eventdumper..."
+echo ">>> Generating k8s-resources.yaml and starting eventdumper..."
 ssh -T $SSH_OPTS $REMOTE 'set -e
 POD_INFO=$(sudo k3s kubectl -n demo get pods -o json)
 echo "$POD_INFO" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-pods_yaml = \"fake_resources:\n  pods:\n\"
+pods_yaml = \"k8s_resources:\n  pods:\n\"
 for pod in data[\"items\"]:
     name = pod[\"metadata\"][\"name\"]
     uid = pod[\"metadata\"][\"uid\"]
@@ -246,9 +246,9 @@ for pod in data[\"items\"]:
             id: {cid}
             image_hash: \"\"
 \"\"\"
-with open(\"/opt/cloud-defend/fake-k8s.yaml\", \"w\") as f:
+with open(\"/opt/cloud-defend/k8s-resources.yaml\", \"w\") as f:
     f.write(pods_yaml)
-print(\"fake-k8s.yaml generated\")
+print(\"k8s-resources.yaml generated\")
 "
 
 # Install the demo policy as the active config
@@ -257,7 +257,7 @@ sudo chown demo:demo /tmp/cloud-defend.yaml
 
 # Start eventdumper
 sudo systemctl stop eventdumper 2>/dev/null; sudo systemctl reset-failed eventdumper 2>/dev/null; sudo killall eventdumper 2>/dev/null; sleep 1
-sudo systemd-run --unit=eventdumper /bin/bash -c "ulimit -l unlimited; cd /opt/cloud-defend && exec ./eventdumper --config /tmp/cloud-defend.yaml --k8s-resources /opt/cloud-defend/fake-k8s.yaml > /tmp/events.log 2>/tmp/stderr.log"
+sudo systemd-run --unit=eventdumper /bin/bash -c "ulimit -l unlimited; cd /opt/cloud-defend && exec ./eventdumper --config /tmp/cloud-defend.yaml --k8s-resources /opt/cloud-defend/k8s-resources.yaml > /tmp/events.log 2>/tmp/stderr.log"
 sleep 2
 
 # Wait for probes

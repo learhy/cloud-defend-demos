@@ -1,7 +1,7 @@
 #!/bin/bash
-# Set up k3s test pods and fake-k8s.yaml for container scenarios.
+# Set up k3s test pods and k8s-resources.yaml for container scenarios.
 # Creates two pods (debian with procps+gzip, nginx), extracts container IDs,
-# and writes the fake-k8s.yaml that eventdumper needs to track containers.
+# and writes the k8s-resources.yaml that eventdumper needs to track containers.
 #
 # Usage: ./scripts/setup-k3s-pods.sh <VM_IP>
 #
@@ -68,9 +68,9 @@ echo "Pods ready."
 '
 
 echo ""
-echo ">>> Extracting container IDs and creating fake-k8s.yaml..."
+echo ">>> Extracting container IDs and creating k8s-resources.yaml..."
 
-# Extract container IDs and create fake-k8s.yaml
+# Extract container IDs and create k8s-resources.yaml
 ssh -T ${SSH_OPTS} -p ${SSH_PORT} ${REMOTE} 'set -e
 POD_INFO=$(sudo k3s kubectl -n demo get pods -o json)
 
@@ -79,7 +79,7 @@ echo "$POD_INFO" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 
-pods_yaml = \"fake_resources:\n  pods:\n\"
+pods_yaml = \"k8s_resources:\n  pods:\n\"
 
 for pod in data[\"items\"]:
     name = pod[\"metadata\"][\"name\"]
@@ -124,15 +124,15 @@ for pod in data[\"items\"]:
             image_hash: \"\"
 \"\"\"
 
-with open(\"/tmp/fake-k8s.yaml\", \"w\") as f:
+with open(\"/tmp/k8s-resources.yaml\", \"w\") as f:
     f.write(pods_yaml)
 print(pods_yaml)
-" > /tmp/fake-k8s-content.txt 2>&1
+" > /tmp/k8s-resources-content.txt 2>&1
 
-cat /tmp/fake-k8s-content.txt
-sudo cp /tmp/fake-k8s.yaml /opt/cloud-defend/fake-k8s.yaml
+cat /tmp/k8s-resources-content.txt
+sudo cp /tmp/k8s-resources.yaml /opt/cloud-defend/k8s-resources.yaml
 echo ""
-echo ">>> fake-k8s.yaml created and copied to /opt/cloud-defend/"
+echo ">>> k8s-resources.yaml created and copied to /opt/cloud-defend/"
 '
 
 echo ""
