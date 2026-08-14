@@ -1,26 +1,19 @@
 #!/bin/bash
-# Create a Hetzner Cloud VM with BPF-LSM enabled kernel.
-# Hetzner Cloud VMs use real KVM, so the BPF verifier completes in seconds.
+# Create a Hetzner Cloud VM with BPF-LSM enabled kernel + k3s installed.
+# k3s runs pods directly on the host (no Docker nesting), so BPF-LSM hooks
+# can see container cgroup paths and blocking works.
 #
 # Requirements:
 #   - hcloud CLI (installed by this script if missing)
 #   - HCLOUD_TOKEN environment variable
 #   - An SSH key registered in Hetzner Cloud
 #
-# After creation, the VM will:
-#   1. Install packages (clang-16, libbpf-dev, etc.)
-#   2. Configure grub with lsm=...bpf...
-#   3. Reboot to enable BPF-LSM
-#
-# Wait ~3 minutes after this script finishes, then run:
-#   ./scripts/install-eventdumper-on-kvm.sh <VM_IP>
-#
 set -e
 
 VM_DIR="${VM_DIR:-./vm}"
 SSH_PORT="${SSH_PORT:-22}"
 VM_NAME="${VM_NAME:-cloud-defend-kvm}"
-SERVER_TYPE="${SERVER_TYPE:-cpx22}"  # 2 vCPU, 4GB RAM, 80GB disk ~€4/mo
+SERVER_TYPE="${SERVER_TYPE:-cpx31}"  # 4 vCPU, 8GB RAM, 160GB disk
 
 # Install hcloud if missing
 if ! command -v hcloud &>/dev/null; then
@@ -40,23 +33,18 @@ if [ -z "$SSH_KEY_ID" ]; then
 fi
 echo ">>> Using SSH key ID: $SSH_KEY_ID"
 
-# Generate SSH key pair locally if not present (for SSH access)
+# Generate SSH key pair locally if not present
 if [ ! -f "${VM_DIR}/ssh-keys/demo_key" ]; then
     echo ">>> Generating local SSH key pair..."
     mkdir -p "${VM_DIR}/ssh-keys"
     ssh-keygen -t ed25519 -f "${VM_DIR}/ssh-keys/demo_key" -N "" -C "cloud-defend-demo"
 fi
 
-# Read the actual public key from the key file (dynamic, not hardcoded)
+# Read the actual public key
 PUBKEY=$(cat "${VM_DIR}/ssh-keys/demo_key.pub")
 echo ">>> Using SSH public key: ${PUBKEY}"
 
-# NOTE: You must also register this key in Hetzner Cloud:
-#   hcloud ssh-key create --name cloud-defend --public-key-from-file ${VM_DIR}/ssh-keys/demo_key.pub
-# The cloud-init below injects it into the VM's authorized_keys directly,
-# so the VM will accept SSH connections with this key regardless of Hetzner's key management.
-
-# Create cloud-init config (dynamically injects the actual public key)
+# Create cloud-init config (k3s installed directly on host, no Docker nesting)
 cat > /tmp/cd-user-data.yaml << CLOUDINIT
 #cloud-config
 hostname: cloud-defend-kvm
@@ -70,23 +58,19 @@ users:
       - ${PUBKEY}
 
 packages:
-  - jq
-  - curl
-  - wget
-  - clang-16
-  - libbpf-dev
-  - linux-headers-generic
-  - build-essential
-  - linux-tools-generic
-  - bpftool
+  - jq curl wget clang-16 libbpf-dev linux-headers-generic build-essential linux-tools-generic bpftool
 
 write_files:
   - path: /etc/default/grub.d/99-bpf-lsm.cfg
     content: |
-      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT lsm=lockdown,capability,yama,apparmor,bpf"
+      GRUB_CMDLINE_LINUX_DEFAULT="\$GRUB_CMDLINE_LINUX_DEFAULT lsm=lockdown,capability,yama,apparmor,bpf"
 
 runcmd:
   - update-grub
+  - |
+    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+    until kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 2; done
+    chmod -x /etc/update-motd.d/* 2>/dev/null || true
   - reboot
 CLOUDINIT
 
@@ -97,13 +81,11 @@ hcloud server create \
   --type "$SERVER_TYPE" \
   --image ubuntu-24.04 \
   --ssh-key "$SSH_KEY_ID" \
-  --location fsn1 \
+  --location ash \
   --user-data-from-file /tmp/cd-user-data.yaml
 
 # Get the IP
 VM_IP=$(hcloud server list 2>&1 | grep "$VM_NAME" | awk '{print $4}')
-
-# Save the IP for subsequent scripts
 echo "$VM_IP" > "${VM_DIR}/kvm-vm-ip.txt"
 
 echo ""
@@ -112,12 +94,9 @@ echo ">>> IP saved to ${VM_DIR}/kvm-vm-ip.txt"
 echo ""
 echo ">>> The VM will automatically:"
 echo "    1. Install packages (clang-16, libbpf-dev, etc.)"
-echo "    2. Configure grub with lsm=...bpf..."
-echo "    3. Reboot to enable BPF-LSM"
+echo "    2. Install k3s (lightweight Kubernetes, runs directly on host)"
+echo "    3. Configure grub with lsm=...bpf..."
+echo "    4. Reboot to enable BPF-LSM"
 echo ""
-echo ">>> Wait ~3 minutes for cloud-init + reboot, then:"
+echo ">>> Wait ~5 minutes for cloud-init + k3s + reboot, then:"
 echo "    ./scripts/install-eventdumper-on-kvm.sh $VM_IP"
-echo ""
-echo ">>> Or use the saved IP:"
-echo "    VM_IP=\$(cat ${VM_DIR}/kvm-vm-ip.txt)"
-echo "    ./scripts/install-eventdumper-on-kvm.sh \$VM_IP"
