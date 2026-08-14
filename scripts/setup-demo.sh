@@ -15,8 +15,9 @@
 #
 set -e
 
-VM_DIR="${VM_DIR:-./vm}"
-SCRIPTS_DIR="$(dirname "$0")"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "${SCRIPTS_DIR}/.." && pwd)"
+VM_DIR="${VM_DIR:-${REPO_DIR}/vm}"
 VM_NAME="${VM_NAME:-cloud-defend-kvm}"
 SERVER_TYPE="${SERVER_TYPE:-cpx31}"
 
@@ -128,9 +129,9 @@ echo "    BPF-LSM: $LSM"
 echo ""
 echo ">>> Installing eventdumper and demo policy..."
 ssh -T $SSH_OPTS $REMOTE "sudo mkdir -p /opt/cloud-defend/policies && sudo chown -R demo:demo /opt/cloud-defend"
-scp $SSH_OPTS "bin/eventdumper" $REMOTE:/opt/cloud-defend/eventdumper
-scp $SSH_OPTS "policies/demo-policy.yaml" $REMOTE:/opt/cloud-defend/policies/
-scp $SSH_OPTS "vm/k8s-resources.yaml" $REMOTE:/opt/cloud-defend/
+scp $SSH_OPTS "${REPO_DIR}/bin/eventdumper" $REMOTE:/opt/cloud-defend/eventdumper
+scp $SSH_OPTS "${REPO_DIR}/policies/demo-policy.yaml" $REMOTE:/opt/cloud-defend/policies/
+scp $SSH_OPTS "${REPO_DIR}/vm/k8s-resources.yaml" $REMOTE:/opt/cloud-defend/
 ssh -T $SSH_OPTS $REMOTE "sudo chmod +x /opt/cloud-defend/eventdumper && sudo chmod -x /etc/update-motd.d/* 2>/dev/null; true"
 
 # ──────────────────────────────────────────────────────
