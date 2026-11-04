@@ -112,7 +112,7 @@ cloud-defend-demos/
 ├── k8s/
 │   └── deployments.yaml             ← Debian + nginx Deployments
 ├── vm/
-│   ├── ssh-keys/                    ← Demo SSH key
+│   ├── ssh-keys/                    ← Demo SSH key (generated locally, gitignored)
 │   └── k8s-resources.yaml
 └── scripts/
     ├── setup-demo.sh                ← ONE script to provision everything

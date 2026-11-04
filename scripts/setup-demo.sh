@@ -38,19 +38,32 @@ fi
 
 export HCLOUD_TOKEN="${HCLOUD_TOKEN:?HCLOUD_TOKEN environment variable is required}"
 
-# Find or register SSH key
-SSH_KEY_ID=$(hcloud ssh-key list 2>&1 | grep cloud-defend-demo | awk '{print $1}')
-if [ -z "$SSH_KEY_ID" ]; then
-    if [ ! -f "${VM_DIR}/ssh-keys/demo_key" ]; then
-        mkdir -p "${VM_DIR}/ssh-keys"
-        ssh-keygen -t ed25519 -f "${VM_DIR}/ssh-keys/demo_key" -N "" -C "cloud-defend-demo"
-    fi
-    chmod 600 "${VM_DIR}/ssh-keys/demo_key"
-    chmod 644 "${VM_DIR}/ssh-keys/demo_key.pub"
-    PUBKEY=$(cat "${VM_DIR}/ssh-keys/demo_key.pub")
-    hcloud ssh-key create --name cloud-defend-demo --public-key-from-file "${VM_DIR}/ssh-keys/demo_key.pub" 2>/dev/null || true
-    SSH_KEY_ID=$(hcloud ssh-key list 2>&1 | grep cloud-defend-demo | awk '{print $1}')
+# Local SSH key: generated on first run, gitignored, never committed.
+# The key that used to live in this repo is public now; refuse to reuse it.
+LEAKED_FP="SHA256:SPe6X3k5YOcY6s9UI05GmJZrm0dRTWna1zZAx/7VLvc"
+mkdir -p "${VM_DIR}/ssh-keys"
+if [ -f "${VM_DIR}/ssh-keys/demo_key.pub" ] && \
+   [ "$(ssh-keygen -l -f "${VM_DIR}/ssh-keys/demo_key.pub" | awk '{print $2}')" = "$LEAKED_FP" ]; then
+    echo ">>> Old demo key found (it was published in git history). Generating a new one."
+    rm -f "${VM_DIR}/ssh-keys/demo_key" "${VM_DIR}/ssh-keys/demo_key.pub"
 fi
+if [ ! -f "${VM_DIR}/ssh-keys/demo_key" ]; then
+    ssh-keygen -t ed25519 -f "${VM_DIR}/ssh-keys/demo_key" -N "" -C "cloud-defend-demo"
+fi
+chmod 600 "${VM_DIR}/ssh-keys/demo_key"
+chmod 644 "${VM_DIR}/ssh-keys/demo_key.pub"
+PUBKEY=$(cat "${VM_DIR}/ssh-keys/demo_key.pub")
+
+# Register this exact key with Hetzner (matched by fingerprint, not by name,
+# so an old key with the same name is never reused)
+KEY_FP_MD5=$(ssh-keygen -l -E md5 -f "${VM_DIR}/ssh-keys/demo_key.pub" | awk '{print $2}' | sed 's/^MD5://')
+SSH_KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint | awk -v fp="$KEY_FP_MD5" '$2==fp {print $1}')
+if [ -z "$SSH_KEY_ID" ]; then
+    KEY_NAME="cloud-defend-demo-$(echo "$KEY_FP_MD5" | tr -d ':' | cut -c1-8)"
+    hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file "${VM_DIR}/ssh-keys/demo_key.pub" >/dev/null
+    SSH_KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint | awk -v fp="$KEY_FP_MD5" '$2==fp {print $1}')
+fi
+[ -n "$SSH_KEY_ID" ] || { echo "ERROR: could not register SSH key with Hetzner" >&2; exit 1; }
 echo ">>> Using SSH key ID: $SSH_KEY_ID"
 
 # Delete old VM if exists
@@ -65,7 +78,7 @@ hcloud server create \
   --image ubuntu-24.04 \
   --ssh-key "$SSH_KEY_ID" \
   --location ash \
-  --user-data-from-file /dev/stdin << 'CLOUDINIT'
+  --user-data-from-file /dev/stdin << CLOUDINIT
 #cloud-config
 hostname: cloud-defend-kvm
 manage_etc_hosts: true
@@ -75,7 +88,7 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     ssh_authorized_keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBry8f9JvIS9z6DqZrGetxzU9Xp7dVNNNh9Y+5OdvvJb cloud-defend-demo
+      - ${PUBKEY}
 
 packages:
   - jq curl wget clang-16 libbpf-dev linux-headers-generic build-essential linux-tools-generic bpftool
@@ -83,7 +96,7 @@ packages:
 write_files:
   - path: /etc/default/grub.d/99-bpf-lsm.cfg
     content: |
-      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT lsm=lockdown,capability,yama,apparmor,bpf"
+      GRUB_CMDLINE_LINUX_DEFAULT="\$GRUB_CMDLINE_LINUX_DEFAULT lsm=lockdown,capability,yama,apparmor,bpf"
 
 runcmd:
   - update-grub

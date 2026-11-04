@@ -1,1 +1,12 @@
 vm/kvm-vm-ip.txt
+
+# Generated per machine. Never commit keys.
+vm/ssh-keys/
+*.pem
+id_*
+*_key
+*_key.pub
+vm/seed.img
+vm/*.qcow2
+vm/*.pid
+vm/vm-console.log
